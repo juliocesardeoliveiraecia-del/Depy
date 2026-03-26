@@ -1,0 +1,88 @@
+<!DOCTYPE html><html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Depy</title><style>
+body {
+  margin:0;
+  background:#050310;
+  color:white;
+  font-family:sans-serif;
+}
+
+#chat {
+  padding:20px;
+}
+
+#inputArea {
+  position:fixed;
+  bottom:0;
+  width:100%;
+  display:flex;
+  padding:10px;
+  background:#050310;
+}
+
+input {
+  flex:1;
+  padding:10px;
+  border-radius:10px;
+  border:none;
+}
+
+button {
+  margin-left:10px;
+  padding:10px;
+  border:none;
+  border-radius:10px;
+  background:#7a00ff;
+  color:white;
+}
+
+#paywall {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.95);
+  display:none;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+}
+</style></head><body><div id="chat"></div><div id="inputArea">
+  <input id="input" placeholder="...">
+  <button onclick="send()">→</button>
+</div><div id="paywall">
+  <div>
+    <p>Você chegou ao limite…</p>
+    <button onclick="goPro()">Aprofundar conexão — R$29</button>
+  </div>
+</div><script>
+let usage = 0;
+const LIMIT = 10;
+
+function send() {
+  if (usage >= LIMIT && !isPro()) {
+    document.getElementById("paywall").style.display = "flex";
+    return;
+  }
+
+  const input = document.getElementById("input");
+  const msg = input.value;
+
+  const chat = document.getElementById("chat");
+
+  chat.innerHTML += "<p>Você: " + msg + "</p>";
+  chat.innerHTML += "<p>Depy: Estou aqui...</p>";
+
+  input.value = "";
+  usage++;
+}
+
+function isPro() {
+  return localStorage.getItem("pro") === "true";
+}
+
+function goPro() {
+  window.open("COLE_SEU_LINK_DO_MERCADO_PAGO_AQUI");
+}
+</script></body>
+</html>
