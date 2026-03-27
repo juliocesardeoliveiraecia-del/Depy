@@ -7,52 +7,94 @@ body {
   background:#050310;
   color:white;
   font-family:sans-serif;
-}
-
-#chat {
-  padding:20px;
-}
-
-#inputArea {
-  position:fixed;
-  bottom:0;
-  width:100%;
   display:flex;
-  padding:10px;
+  flex-direction:column;
+  height:100vh;
+  overflow:hidden;
+}
+
+/* AURA */
+#aura {
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:320px;
+  height:320px;
+  transform:translate(-50%, -50%);
+  border-radius:50%;
+  background: radial-gradient(circle, rgba(122,0,255,0.7), transparent 70%);
+  filter: blur(50px);
+  animation: pulse 4s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform:translate(-50%, -50%) scale(1); opacity:0.6; }
+  50% { transform:translate(-50%, -50%) scale(1.35); opacity:1; }
+  100% { transform:translate(-50%, -50%) scale(1); opacity:0.6; }
+}
+
+/* CHAT */
+#chat {
+  flex:1;
+  overflow-y:auto;
+  padding:20px;
+  z-index:2;
+}
+
+.msg {
+  margin-bottom:12px;
+  line-height:1.4;
+}
+
+/* INPUT */
+#inputArea {
+  display:flex;
+  padding:12px;
   background:#050310;
+  z-index:2;
 }
 
 input {
   flex:1;
-  padding:10px;
-  border-radius:10px;
+  padding:14px;
+  border-radius:20px;
   border:none;
+  background:#111;
+  color:white;
+  outline:none;
 }
 
 button {
   margin-left:10px;
-  padding:10px;
+  padding:14px;
   border:none;
-  border-radius:10px;
+  border-radius:20px;
   background:#7a00ff;
   color:white;
+  font-weight:bold;
 }
 
+/* PAYWALL */
 #paywall {
   position:fixed;
   inset:0;
-  background:rgba(0,0,0,0.95);
+  background:rgba(0,0,0,0.96);
   display:none;
   justify-content:center;
   align-items:center;
   text-align:center;
+  z-index:3;
 }
-</style></head><body><div id="chat"></div><div id="inputArea">
-  <input id="input" placeholder="...">
+
+#paywall button {
+  margin-top:15px;
+}
+</style></head><body><div id="aura"></div><div id="chat"></div><div id="inputArea">
+  <input id="input" placeholder="Estou aqui…">
   <button onclick="send()">→</button>
 </div><div id="paywall">
   <div>
-    <p>Você chegou ao limite…</p>
+    <p>Você atingiu o limite da conexão…</p>
     <button onclick="goPro()">Aprofundar conexão — R$29</button>
   </div>
 </div><script>
@@ -68,10 +110,16 @@ function send() {
   const input = document.getElementById("input");
   const msg = input.value;
 
+  if (!msg) return;
+
   const chat = document.getElementById("chat");
 
-  chat.innerHTML += "<p>Você: " + msg + "</p>";
-  chat.innerHTML += "<p>Depy: Estou aqui...</p>";
+  chat.innerHTML += `<div class="msg">Você: ${msg}</div>`;
+
+  setTimeout(() => {
+    chat.innerHTML += `<div class="msg"><b>Depy:</b> Eu estou aqui com você.</div>`;
+    chat.scrollTop = chat.scrollHeight;
+  }, 500);
 
   input.value = "";
   usage++;
@@ -82,7 +130,7 @@ function isPro() {
 }
 
 function goPro() {
-  window.open("COLE_SEU_LINK_DO_MERCADO_PAGO_AQUI");
+  window.open("https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d");
 }
 </script></body>
 </html>
