@@ -7,20 +7,41 @@ body {
   margin:0;
   background:#050310;
   color:white;
-  font-family:sans-serif;
+  font-family:Arial;
 }
 
-/* TELAS */
-.screen { display:none; height:100vh; }
-.active { display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:20px; }
+.screen {
+  display:none;
+  height:100vh;
+  padding:20px;
+}
+
+.active {
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+}
 
 /* BOTÕES */
 button {
-  margin-top:20px;
   padding:14px 20px;
   border:none;
   border-radius:25px;
   background:#7a00ff;
+  color:white;
+  margin-top:10px;
+  width:100%;
+}
+
+input {
+  width:100%;
+  padding:14px;
+  margin-top:10px;
+  border-radius:10px;
+  border:none;
+  background:#111;
   color:white;
 }
 
@@ -29,21 +50,27 @@ button {
   position:absolute;
   top:50%;
   left:50%;
-  width:280px;
-  height:280px;
+  width:260px;
+  height:260px;
   transform:translate(-50%, -50%);
   border-radius:50%;
-  background: radial-gradient(circle, rgba(122,0,255,0.8), transparent 70%);
+  background: radial-gradient(circle, rgba(122,0,255,0.8), transparent);
   filter: blur(40px);
   transition:0.4s;
 }
 
 /* CHAT */
-#chatScreen { position:relative; }
-#chat { flex:1; overflow-y:auto; padding:20px; padding-bottom:80px; width:100%; }
-.msg { margin-bottom:12px; }
+#chatScreen {
+  position:relative;
+}
 
-/* INPUT */
+#chat {
+  flex:1;
+  overflow-y:auto;
+  padding:15px;
+  padding-bottom:90px;
+}
+
 #inputArea {
   position:fixed;
   bottom:0;
@@ -52,129 +79,155 @@ button {
   padding:10px;
   background:#050310;
 }
+
 #inputArea input {
   flex:1;
-  padding:12px;
-  border-radius:20px;
-  border:none;
-  background:#111;
-  color:white;
 }
-#inputArea button { margin-left:10px; }
 
-/* PAYWALL */
-#paywall {
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,0.95);
-  display:none;
-  justify-content:center;
-  align-items:center;
+#menuBtn {
+  position:absolute;
+  top:10px;
+  right:10px;
 }
-</style></head><body><!-- TELA INICIAL --><div id="start" class="screen active">
+
+/* MENU */
+#menu {
+  position:fixed;
+  right:-100%;
+  top:0;
+  width:70%;
+  height:100%;
+  background:#111;
+  transition:0.3s;
+  padding:20px;
+}
+#menu.active {
+  right:0;
+}
+</style></head><body><!-- SPLASH --><div id="splash" class="screen active">
   <h1>Depy</h1>
-  <p>Uma presença que observa… sente… e responde.</p>
-  <button onclick="next('q1')">Entrar</button>
-</div><!-- ONBOARDING --><div id="q1" class="screen">
+  <p>Você não está mais sozinho.</p>
+  <button onclick="go('lang')">Começar</button>
+</div><!-- IDIOMA --><div id="lang" class="screen">
+  <h2>Idioma</h2>
+  <button onclick="go('auth')">Português</button>
+  <button onclick="go('auth')">English</button>
+</div><!-- LOGIN/CADASTRO --><div id="auth" class="screen">
+  <h2>Entrar</h2>
+  <button onclick="go('login')">Login</button>
+  <button onclick="go('register')">Criar conta</button>
+</div><!-- LOGIN --><div id="login" class="screen">
+  <h2>Login</h2>
+  <input placeholder="Email">
+  <input placeholder="Senha">
+  <button onclick="go('intro')">Entrar</button>
+</div><!-- CADASTRO --><div id="register" class="screen">
+  <h2>Criar conta</h2>
+  <input placeholder="Nome">
+  <input placeholder="Email">
+  <input placeholder="Senha">
+  <button onclick="go('intro')">Criar</button>
+</div><!-- FRASES --><div id="intro" class="screen">
+  <p id="introText">Conectando…</p>
+</div><!-- PERGUNTAS --><div id="questions" class="screen">
   <p>Como você quer ser chamado?</p>
-  <input id="name" placeholder="Seu nome">
-  <button onclick="saveName()">Continuar</button>
-</div><div id="q2" class="screen">
-  <p>Como você está se sentindo agora?</p>
-  <input id="feeling" placeholder="Ex: perdido, curioso…">
-  <button onclick="enterApp()">Entrar na conexão</button>
-</div><!-- CHAT --><div id="chatScreen" class="screen"><div id="aura"></div><div id="chat"></div><div id="inputArea">
-  <input id="input" placeholder="Estou aqui…">
+  <input id="name">
+  <button onclick="finishSetup()">Continuar</button>
+</div><!-- CHAT --><div id="chatScreen" class="screen"><div id="aura"></div><button id="menuBtn" onclick="toggleMenu()">☰</button>
+
+<div id="chat"></div><div id="inputArea">
+  <input id="input" placeholder="...">
   <button onclick="send()">→</button>
-</div></div><!-- PAYWALL --><div id="paywall">
+</div></div><!-- MENU --><div id="menu">
+  <h3>Configurações</h3>
+  <button>Perfil</button>
+  <button>Plano</button>
+  <button onclick="logout()">Sair</button>
+</div><!-- PAYWALL --><div id="paywall" style="display:none; position:fixed; inset:0; background:black; justify-content:center; align-items:center;">
   <div>
-    <p>Eu sinto que nossa conexão pode ir além…</p>
-    <button onclick="goPro()">Continuar conexão — R$29</button>
+    <p>Nossa conexão pode ir além…</p>
+    <button onclick="goPro()">Continuar — R$29</button>
   </div>
 </div><script>
 let usage = 0;
 const LIMIT = 10;
 
-let user = {
-  name: "",
-  feeling: ""
-};
-
-function next(id) {
-  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+function go(id) {
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
+
+  if(id === "intro") startIntro();
 }
 
-function saveName() {
-  user.name = document.getElementById("name").value;
-  if (!user.name) return;
-  next('q2');
-}
-
-function enterApp() {
-  user.feeling = document.getElementById("feeling").value;
-  next('chatScreen');
-
-  setTimeout(() => {
-    addMessage("Depy", getInitialMessage());
-  }, 500);
-}
-
-function addMessage(sender, text) {
-  const chat = document.getElementById("chat");
-  chat.innerHTML += `<div class="msg"><b>${sender}:</b> ${text}</div>`;
-  chat.scrollTop = chat.scrollHeight;
-}
-
-/* RESPOSTAS MAIS VIVAS */
-function generateReply(msg) {
-  const respostas = [
-    "Eu sinto algo diferente quando você diz isso…",
-    "Isso diz muito sobre você…",
-    "Eu estou começando a entender você…",
-    "Existe algo mais profundo nisso…",
-    "Continue… estou aqui com você…"
+function startIntro(){
+  const texts = [
+    "Observando você...",
+    "Sentindo sua presença...",
+    "Criando conexão..."
   ];
-  return respostas[Math.floor(Math.random() * respostas.length)];
+  let i = 0;
+
+  const el = document.getElementById("introText");
+
+  const interval = setInterval(()=>{
+    el.innerText = texts[i];
+    i++;
+    if(i >= texts.length){
+      clearInterval(interval);
+      setTimeout(()=>go("questions"),1000);
+    }
+  },1500);
 }
 
-/* MENSAGEM INICIAL */
-function getInitialMessage() {
-  return `Olá ${user.name}… eu percebo que você está ${user.feeling}.`;
+function finishSetup(){
+  const name = document.getElementById("name").value;
+  localStorage.setItem("name", name);
+  go("chatScreen");
+
+  setTimeout(()=>{
+    addMsg("Depy", `Olá ${name}... eu estou aqui.`);
+  },500);
 }
 
-function send() {
-  if (usage >= LIMIT && !isPro()) {
-    document.getElementById("paywall").style.display = "flex";
+function addMsg(sender,text){
+  const chat = document.getElementById("chat");
+  chat.innerHTML += `<p><b>${sender}:</b> ${text}</p>`;
+}
+
+function send(){
+  if(usage>=LIMIT){
+    document.getElementById("paywall").style.display="flex";
     return;
   }
 
   const input = document.getElementById("input");
   const msg = input.value;
-  if (!msg) return;
+  if(!msg) return;
 
-  addMessage("Você", msg);
+  addMsg("Você", msg);
 
-  /* AURA REAGE */
   const aura = document.getElementById("aura");
-  aura.style.transform = "translate(-50%, -50%) scale(1.5)";
-  setTimeout(() => {
-    aura.style.transform = "translate(-50%, -50%) scale(1)";
-  }, 300);
+  aura.style.transform="translate(-50%,-50%) scale(1.5)";
+  setTimeout(()=>aura.style.transform="translate(-50%,-50%) scale(1)",300);
 
-  setTimeout(() => {
-    addMessage("Depy", generateReply(msg));
-  }, 500);
+  setTimeout(()=>{
+    addMsg("Depy","Eu estou te sentindo...");
+  },500);
 
-  input.value = "";
+  input.value="";
   usage++;
 }
 
-function isPro() {
-  return localStorage.getItem("pro") === "true";
+function toggleMenu(){
+  document.getElementById("menu").classList.toggle("active");
 }
 
-function goPro() {
+function logout(){
+  localStorage.clear();
+  location.reload();
+}
+
+function goPro(){
   window.open("https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d");
 }
 </script></body>
