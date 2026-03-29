@@ -521,6 +521,14 @@ html,body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;t
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Depy — Seu Companheiro Digital">
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+  const supabaseUrl = 'https://wcdvhjnxzpjpcqudlhee.supabase.co'
+  const supabaseAnonKey = 'sb_publishable_RlMmiVE4gOjyLAZx4-Ap6A_P2L4Bt8U'
+
+  window.supabase = createClient(supabaseUrl, supabaseAnonKey)
+</script>
 </head>
 <body>
 <style>
