@@ -2116,9 +2116,9 @@ function choosePlan(planType){
   if(existing) existing.remove();
   // Redirect to MP based on plan
   var urls = {
-    basic:   "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d",
+    basic:   "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=1bbb0e9547834d48be979d5a999fd3bc",
     pro:     "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d",
-    premium: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d"
+    premium: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=8a0a8c144090431fa4494cd8db4e45b0"
   };
   localStorage.setItem("depy_mp_pending", planType);
   var mpUrl = urls[planType] + (user&&user.supabaseId ? "&external_reference="+user.supabaseId : "");
