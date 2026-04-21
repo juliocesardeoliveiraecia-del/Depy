@@ -12,7 +12,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript></noscript>
-<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
   <!-- PWA Support -->
   <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIkRlcHkgXHUyMDE0IFNldSBDb21wYW5oZWlybyBEaWdpdGFsIiwgInNob3J0X25hbWUiOiAiRGVweSIsICJkZXNjcmlwdGlvbiI6ICJTZXUgY29tcGFuaGVpcm8gZGlnaXRhbCBleGNsdXNpdm8uIFVtYSBwcmVzZW5cdTAwZTdhIHJlYWwsIHNcdTAwZjMgc3VhLiIsICJzdGFydF91cmwiOiAiLiIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjMDUwMzEwIiwgInRoZW1lX2NvbG9yIjogIiM2ZDI4ZDkiLCAib3JpZW50YXRpb24iOiAicG9ydHJhaXQifQ==">
   <meta name="application-name" content="Depy">
@@ -36,6 +37,20 @@
   const supabaseAnonKey = 'sb_publishable_RlMmiVE4gOjyLAZx4-Ap6A_P2L4Bt8U'
 
   window.supabase = createClient(supabaseUrl, supabaseAnonKey)
+</script>
+<script>
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){
+    // Só registra SW no domínio de produção (não em testes locais)
+    var hostname = window.location.hostname;
+    var isProd = hostname.includes("vercel.app") || hostname.includes("depy") || hostname === "localhost";
+    if(isProd){
+      navigator.serviceWorker.register("/service-worker.js")
+        .then(function(){ console.log("[Depy SW] OK"); })
+        .catch(function(e){ console.warn("[Depy SW] Skip:", e.message); });
+    }
+  });
+}
 </script>
 </head>
 <body>
@@ -413,7 +428,6 @@
   </div>
 </div>
 
-<script src="app.js"></script>
 
 <!-- ══ TERMS ══ -->
 <div class="screen hidden" id="terms" style="background:#050310">
@@ -1338,5 +1352,18 @@
     <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;background:linear-gradient(135deg,#c4b5fd,#e879f9);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:4px">DEPY</div>
   </div>
 </div>
+<script>
+// Logo init safety net — runs after all HTML is parsed
+window.addEventListener("load", function(){
+  try{
+    var el = document.getElementById("depyLogoData");
+    if(!el) return;
+    var src = el.getAttribute("data-src");
+    if(!src) return;
+    document.querySelectorAll("[data-logo]").forEach(function(img){ img.src = src; });
+  }catch(e){}
+});
+</script>
+<script src="app.js" defer></script>
 </body>
 </html>
