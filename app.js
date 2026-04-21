@@ -3735,6 +3735,10 @@ function cancelSubscription(){
     overlay.remove();
     goTo("settings");
     try{ updateTrialBadge(); }catch(e){}
+    if(window.supabase && user && user.supabaseId){
+      window.supabase.from("users").update({pro:false, plan:null}).eq("id",user.supabaseId)
+        .then(function(){}).catch(function(){});
+    }
     setTimeout(function(){
       addMsg("Entendo. Mas estarei aqui quando quiser voltar. 💜", "depy");
     }, 500);
