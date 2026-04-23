@@ -611,7 +611,7 @@ function finalizeRegister(){
   window._greetingPlayed = false;
 
   // Show plan screen before starting the experience
-  if(window.supabase&&user&&user.email&&user.passRaw){ window.supabase.auth.signUp({email:user.email,password:user.passRaw,options:{data:{name:user.name}}}).then(function(r){ if(r.data&&r.data.user){ user.supabaseId=r.data.user.id; window.supabase.from("users").insert({id:r.data.user.id,email:user.email,name:user.name,pro:false}).then(function(){}).catch(function(){}); try{ localStorage.setItem(DB_KEY,JSON.stringify(user)); }catch(e){} } }).catch(function(e){ console.warn("sb:",e); }); }
+  if(window.supabase&&user&&user.email&&user.passRaw){ window.supabase.auth.signUp({email:user.email,password:user.passRaw,options:{data:{name:user.name}}}).then(function(r){ if(r.data&&r.data.user){ user.supabaseId=r.data.user.id; window.supabase.from("users").insert({id:r.data.user.id,email:user.email,name:user.name,plan:"free"}).then(function(){}).catch(function(){}); try{ localStorage.setItem(DB_KEY,JSON.stringify(user)); }catch(e){} } }).catch(function(e){ console.warn("sb:",e); }); }
   goTo("trial");
 }
 
@@ -767,7 +767,7 @@ function doLogin(){
   var btnEl=document.getElementById("loginBtn"); if(btnEl){ btnEl.textContent="Entrando..."; btnEl.disabled=true; }
   function rel(){ if(btnEl){ btnEl.textContent="Entrar"; btnEl.disabled=false; } }
   function local(){ try{ var s=localStorage.getItem(DB_KEY); if(!s){ if(errEl) errEl.textContent="Conta não encontrada."; rel(); return; } var su=JSON.parse(s); if((su.email||"").toLowerCase().trim()!==email.toLowerCase().trim()){ if(errEl) errEl.textContent="E-mail não encontrado."; rel(); return; } if(su.passRaw&&String(su.passRaw)!==String(pass)){ if(errEl) errEl.textContent="Senha incorreta."; rel(); return; } user=su; try{ var m=localStorage.getItem(MEM_KEY); if(m) depyMemory=JSON.parse(m); }catch(e){} try{ var h=localStorage.getItem(HIST_KEY); if(h) chatHistory=JSON.parse(h); }catch(e){} launchApp(); }catch(e){ if(errEl) errEl.textContent="Erro inesperado."; rel(); } }
-  if(window.supabase){ window.supabase.auth.signInWithPassword({email:email,password:pass}).then(function(r){ if(r.error){ if(errEl) errEl.textContent=r.error.message==="Invalid login credentials"?"E-mail ou senha incorretos.":r.error.message; rel(); return; } var sb=r.data.user; try{ var sv=localStorage.getItem(DB_KEY); if(sv){ user=JSON.parse(sv); } else { user={name:(sb.user_metadata&&sb.user_metadata.name)||email.split("@")[0],email:email,gender:"masc",msgCount:0,depyId:"DEPY-"+Math.random().toString(36).substr(2,8).toUpperCase()}; } user.supabaseId=sb.id; localStorage.setItem(DB_KEY,JSON.stringify(user)); }catch(e){ user={name:email.split("@")[0],email:email,gender:"masc",msgCount:0}; } window.supabase.from("users").select("pro").eq("id",sb.id).single().then(function(pr){ if(pr.data&&pr.data.pro){ try{ localStorage.setItem(SUB_KEY,JSON.stringify({active:true,plan:"pro",startDate:new Date().toISOString()})); }catch(e){} } try{ var m=localStorage.getItem(MEM_KEY); if(m) depyMemory=JSON.parse(m); }catch(e){} try{ var h2=localStorage.getItem(HIST_KEY); if(h2) chatHistory=JSON.parse(h2); }catch(e){} launchApp(); }).catch(function(){ launchApp(); }); }).catch(function(){ local(); }); } else { local(); }
+  if(window.supabase){ window.supabase.auth.signInWithPassword({email:email,password:pass}).then(function(r){ if(r.error){ if(errEl) errEl.textContent=r.error.message==="Invalid login credentials"?"E-mail ou senha incorretos.":r.error.message; rel(); return; } var sb=r.data.user; try{ var sv=localStorage.getItem(DB_KEY); if(sv){ user=JSON.parse(sv); } else { user={name:(sb.user_metadata&&sb.user_metadata.name)||email.split("@")[0],email:email,gender:"masc",msgCount:0,depyId:"DEPY-"+Math.random().toString(36).substr(2,8).toUpperCase()}; } user.supabaseId=sb.id; localStorage.setItem(DB_KEY,JSON.stringify(user)); }catch(e){ user={name:email.split("@")[0],email:email,gender:"masc",msgCount:0}; } window.supabase.from("users").select("plan").eq("id",sb.id).single().then(function(pr){ if(pr.data&&pr.data.pro){ try{ localStorage.setItem(SUB_KEY,JSON.stringify({active:true,plan:"pro",startDate:new Date().toISOString()})); }catch(e){} } try{ var m=localStorage.getItem(MEM_KEY); if(m) depyMemory=JSON.parse(m); }catch(e){} try{ var h2=localStorage.getItem(HIST_KEY); if(h2) chatHistory=JSON.parse(h2); }catch(e){} launchApp(); }).catch(function(){ launchApp(); }); }).catch(function(){ local(); }); } else { local(); }
 }
 
 function launchApp(){
@@ -1899,19 +1899,22 @@ function decideModel(classification, plan, totalUsed){
 // Log para Supabase (não-bloqueante)
 function logToSupabase(userId, userMsg, depyReply, model, tokens, ms){
   if(!window.supabase || !userId) return;
+  // Cost per token (USD): sonnet ~$0.015/1k, haiku ~$0.0025/1k
   var cost = model === "claude-sonnet-4-20250514"
-    ? Math.round(tokens * 0.000015 * 100) / 100
-    : Math.round(tokens * 0.0000025 * 100) / 100;
+    ? Math.round(tokens * 0.000015 * 1000000) / 1000000
+    : Math.round(tokens * 0.0000025 * 1000000) / 1000000;
   window.supabase.from("depy_logs").insert({
-    user_id: userId,
-    mensagem: userMsg ? userMsg.substring(0,200) : "",
-    resposta: depyReply ? depyReply.substring(0,500) : "",
-    modelo: model || "fixed",
+    user_id:          userId,
+    mensagem:         userMsg  ? userMsg.substring(0,200)  : "",
+    resposta:         depyReply ? depyReply.substring(0,500) : "",
+    modelo:           model || "fixed",
     tokens_estimados: tokens || 0,
-    custo_estimado: cost,
-    tempo_ms: ms || 0,
-    timestamp: new Date().toISOString()
-  }).then(function(){}).catch(function(){});
+    custo_estimado:   cost,
+    tempo_ms:         ms || 0,
+    timestamp:        new Date().toISOString()
+  }).then(function(){}).catch(function(e){
+    console.warn("[Depy Log] insert failed:", e.message);
+  });
 }
 
 const TRIAL_DAYS = 7;
@@ -2114,14 +2117,28 @@ function showMonthlyLimitReached(fn, plan, used, limit){
 function choosePlan(planType){
   var existing = document.getElementById("upgradeGateOverlay");
   if(existing) existing.remove();
-  // Redirect to MP based on plan
+
   var urls = {
     basic:   "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=1bbb0e9547834d48be979d5a999fd3bc",
     pro:     "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d",
     premium: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=8a0a8c144090431fa4494cd8db4e45b0"
   };
+
+  var baseUrl = urls[planType] || urls.pro;
+
+  // CRÍTICO: external_reference deve ser o supabaseId
+  // Se não tiver supabaseId ainda (usuário não sincronizou), usa email como fallback
+  var extRef = (user && user.supabaseId)
+    ? user.supabaseId
+    : (user && user.email ? encodeURIComponent(user.email) : "");
+
+  if(!extRef){
+    console.warn("[Depy] choosePlan: sem external_reference — usuário não identificado");
+  }
+
+  var mpUrl = baseUrl + (extRef ? "&external_reference=" + extRef : "");
+
   localStorage.setItem("depy_mp_pending", planType);
-  var mpUrl = urls[planType] + (user&&user.supabaseId ? "&external_reference="+user.supabaseId : "");
   window.open(mpUrl, "_blank");
 }
 
@@ -2140,7 +2157,10 @@ function checkAccess(){
 return true;
 }
 
-function isPro(){ try{ var s=localStorage.getItem(SUB_KEY); if(!s) return false; var d=JSON.parse(s); return d.active===true; }catch(e){ return false; } }
+function isPro(){
+  var p = getPlan();
+  return p === "basic" || p === "pro" || p === "premium";
+}
 
 function isFree(){
 // No active subscription = free plan
@@ -3684,7 +3704,7 @@ function activateProPlan(planType){
   try{ localStorage.setItem(SUB_KEY, JSON.stringify(subData)); }catch(e){}
   try{ updateTrialBadge(); }catch(e){}
   if(window.supabase&&user&&user.supabaseId){
-    window.supabase.from("users").update({pro:true,plan:planType}).eq("id",user.supabaseId).then(function(){}).catch(function(){});
+    window.supabase.from("users").update({plan:planType}).eq("id",user.supabaseId).then(function(){}).catch(function(){});
   }
   var fn = user ? user.name.split(" ")[0] : "";
   var planName = planNames[planType] || "Pro";
@@ -3736,7 +3756,7 @@ function cancelSubscription(){
     goTo("settings");
     try{ updateTrialBadge(); }catch(e){}
     if(window.supabase && user && user.supabaseId){
-      window.supabase.from("users").update({pro:false, plan:null}).eq("id",user.supabaseId)
+      window.supabase.from("users").update({plan:"free"}).eq("id",user.supabaseId)
         .then(function(){}).catch(function(){});
     }
     setTimeout(function(){
@@ -3750,7 +3770,7 @@ function cancelSubscription(){
 function checkMPReturn(){
   try{ var p=new URLSearchParams(window.location.search); var st=p.get("status")||p.get("collection_status"); var pend=localStorage.getItem("depy_mp_pending");
     if(st==="approved"){ activateProPlan(); if(window.history&&window.history.replaceState) window.history.replaceState({},"",window.location.pathname); localStorage.removeItem("depy_mp_pending"); }
-    else if(pend&&window.supabase&&user&&user.supabaseId){ window.supabase.from("users").select("pro").eq("id",user.supabaseId).single().then(function(r){ if(r.data&&r.data.pro&&!isPro()){ activateProPlan(); localStorage.removeItem("depy_mp_pending"); } }).catch(function(){}); }
+    else if(pend&&window.supabase&&user&&user.supabaseId){ window.supabase.from("users").select("plan").eq("id",user.supabaseId).single().then(function(r){ if(r.data && r.data.plan && r.data.plan !== "free" && !isPro()){ activateProPlan(r.data.plan); localStorage.removeItem("depy_mp_pending"); } }).catch(function(){}); }
   }catch(e){}
 }
 
