@@ -1,0 +1,9 @@
+{
+  "name": "depy",
+  "version": "1.0.0",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.20.0"
+  }
+}
