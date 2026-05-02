@@ -1,9 +1,14 @@
 {
   "name": "depy",
   "version": "1.0.0",
+  "description": "Depy \u2014 Seu Companheiro Digital",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@supabase/supabase-js": "^2.0.0",
-    "openai": "^4.0.0",
-    "@anthropic-ai/sdk": "^0.20.0"
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@supabase/supabase-js": "^2.43.0",
+    "openai": "^4.52.0"
   }
 }
