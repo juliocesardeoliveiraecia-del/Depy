@@ -1,7 +1,7 @@
 -- ================================================================
--- DEPY — SUPABASE SETUP FINAL v3
--- Execute no SQL Editor do Supabase em ordem
--- SEM coluna 'pro' — 'plan' é a única fonte de verdade
+-- DEPY — SUPABASE SETUP FINAL v4
+-- Execute no SQL Editor do Supabase
+-- Versão auditada e corrigida para produção
 -- ================================================================
 
 -- ── 1. TABELA USERS ─────────────────────────────────────────────
@@ -15,9 +15,8 @@ CREATE TABLE IF NOT EXISTS public.users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Migração segura: adicionar colunas se tabela já existe
+-- Migração segura se tabela já existe
 DO $$ BEGIN
-  -- Adiciona plan se não existe
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name='users' AND column_name='plan'
@@ -26,7 +25,7 @@ DO $$ BEGIN
       CHECK (plan IN ('free','basic','pro','premium'));
   END IF;
 
-  -- Remove coluna 'pro' se existir (era redundante)
+  -- Remove coluna 'pro' redundante se existir
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name='users' AND column_name='pro'
@@ -34,19 +33,19 @@ DO $$ BEGIN
     ALTER TABLE public.users DROP COLUMN pro;
   END IF;
 
-  -- Adiciona updated_at se não existe
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name='users' AND column_name='updated_at'
   ) THEN
-    ALTER TABLE public.users ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE public.users
+      ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   END IF;
 END $$;
 
--- Índice email
 CREATE INDEX IF NOT EXISTS users_email_idx ON public.users(email);
+CREATE INDEX IF NOT EXISTS users_plan_idx  ON public.users(plan);
 
--- Trigger updated_at
+-- Trigger updated_at automático
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
@@ -59,15 +58,15 @@ CREATE TRIGGER users_updated_at
 
 -- ── 2. TABELA DEPY_LOGS ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.depy_logs (
-  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          UUID        REFERENCES public.users(id) ON DELETE SET NULL,
+  id               UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID          REFERENCES public.users(id) ON DELETE SET NULL,
   mensagem         TEXT,
   resposta         TEXT,
-  modelo           TEXT        NOT NULL DEFAULT 'fixed',
-  tokens_estimados INTEGER     NOT NULL DEFAULT 0,
+  modelo           TEXT          NOT NULL DEFAULT 'fixed',
+  tokens_estimados INTEGER       NOT NULL DEFAULT 0,
   custo_estimado   NUMERIC(12,8) NOT NULL DEFAULT 0,
-  tempo_ms         INTEGER     NOT NULL DEFAULT 0,
-  timestamp        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  tempo_ms         INTEGER       NOT NULL DEFAULT 0,
+  timestamp        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS depy_logs_user_idx ON public.depy_logs(user_id);
@@ -76,7 +75,7 @@ CREATE INDEX IF NOT EXISTS depy_logs_ts_idx   ON public.depy_logs(timestamp DESC
 -- ── 3. TABELA MP_EVENTS ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.mp_events (
   id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id       TEXT        NOT NULL UNIQUE,  -- anti-duplicidade garantida
+  event_id       TEXT        NOT NULL UNIQUE,
   type           TEXT,
   action         TEXT,
   user_id        UUID        REFERENCES public.users(id) ON DELETE SET NULL,
@@ -108,7 +107,8 @@ CREATE POLICY "users_update_own" ON public.users
   FOR UPDATE USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
--- depy_logs: usuário insere/lê só os próprios logs
+-- depy_logs: usuário insere/lê próprios logs
+-- service_role bypassa RLS automaticamente (para api/chat.js)
 DROP POLICY IF EXISTS "logs_insert_own" ON public.depy_logs;
 DROP POLICY IF EXISTS "logs_select_own" ON public.depy_logs;
 
@@ -117,33 +117,64 @@ CREATE POLICY "logs_insert_own" ON public.depy_logs
 CREATE POLICY "logs_select_own" ON public.depy_logs
   FOR SELECT USING (auth.uid() = user_id);
 
--- mp_events: só service_role (webhook backend) acessa
+-- FIX: mp_events precisa de WITH CHECK para INSERT funcionar
+-- service_role bypassa RLS — esta policy é para outras roles
 DROP POLICY IF EXISTS "mp_service_only" ON public.mp_events;
 CREATE POLICY "mp_service_only" ON public.mp_events
-  FOR ALL USING (auth.role() = 'service_role');
+  FOR ALL
+  USING     (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 -- ── 5. FUNCTION: activate_plan ───────────────────────────────────
--- Chamada pelo webhook após pagamento confirmado
--- Idempotente: pode ser chamada múltiplas vezes sem problema
+-- FIX: proteção contra downgrade indevido
+-- Ex: usuário Premium não pode ser rebaixado para Basic por bug no webhook
 CREATE OR REPLACE FUNCTION public.activate_plan(
   p_user_id   UUID,
   p_plan_type TEXT
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
-SECURITY DEFINER  -- roda com permissões do owner, bypassando RLS
+SECURITY DEFINER
 AS $$
+DECLARE
+  v_current_plan TEXT;
+  v_plan_rank    INT;
+  v_current_rank INT;
 BEGIN
+  -- Validar plano
   IF p_plan_type NOT IN ('basic','pro','premium') THEN
     RAISE EXCEPTION 'Invalid plan: %', p_plan_type;
   END IF;
 
-  UPDATE public.users
-  SET plan = p_plan_type, updated_at = NOW()
-  WHERE id = p_user_id;
+  -- Busca plano atual
+  SELECT plan INTO v_current_plan
+  FROM public.users WHERE id = p_user_id;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'User not found: %', p_user_id;
+  END IF;
+
+  -- Hierarquia de planos (maior número = plano melhor)
+  v_plan_rank := CASE p_plan_type
+    WHEN 'basic'   THEN 1
+    WHEN 'pro'     THEN 2
+    WHEN 'premium' THEN 3
+    ELSE 0
+  END;
+
+  v_current_rank := CASE v_current_plan
+    WHEN 'basic'   THEN 1
+    WHEN 'pro'     THEN 2
+    WHEN 'premium' THEN 3
+    ELSE 0
+  END;
+
+  -- FIX: só atualiza se novo plano for >= plano atual
+  -- Evita downgrade acidental por bug no webhook
+  IF v_plan_rank >= v_current_rank THEN
+    UPDATE public.users
+    SET plan = p_plan_type, updated_at = NOW()
+    WHERE id = p_user_id;
   END IF;
 
   RETURN TRUE;
@@ -168,15 +199,14 @@ $$;
 CREATE OR REPLACE VIEW public.user_costs AS
 SELECT
   user_id,
-  COUNT(*)                                    AS total_interacoes,
-  SUM(tokens_estimados)                       AS total_tokens,
-  ROUND(SUM(custo_estimado)::NUMERIC, 6)      AS custo_total_usd,
-  MAX(timestamp)                              AS ultima_interacao
+  COUNT(*)                               AS total_interacoes,
+  SUM(tokens_estimados)                  AS total_tokens,
+  ROUND(SUM(custo_estimado)::NUMERIC, 6) AS custo_total_usd,
+  MAX(timestamp)                         AS ultima_interacao
 FROM public.depy_logs
 GROUP BY user_id;
 
--- ── 8. HELPER: buscar user_id por email (para webhook) ───────────
--- Útil se external_reference vier como email em vez de UUID
+-- ── 8. FUNCTION: get_user_id_by_email ────────────────────────────
 CREATE OR REPLACE FUNCTION public.get_user_id_by_email(p_email TEXT)
 RETURNS UUID
 LANGUAGE plpgsql
@@ -184,7 +214,8 @@ SECURITY DEFINER
 AS $$
 DECLARE v_id UUID;
 BEGIN
-  SELECT id INTO v_id FROM public.users WHERE email = p_email LIMIT 1;
+  SELECT id INTO v_id
+  FROM public.users WHERE email = p_email LIMIT 1;
   RETURN v_id;
 END;
 $$;
