@@ -7,6 +7,392 @@ const LANG_KEY    = "depy_lang_v1";
 const MEM_KEY     = "depy_memory_v1";   
 const HIST_KEY    = "depy_history_v1";  
 
+// ══════════════════════════════════════════════════════════════
+// DEPY — SISTEMA DE PLANOS COMPLETO
+// ══════════════════════════════════════════════════════════════
+
+// ── Constantes ──
+const FREE_TOTAL_LIMIT   = 10;   // total msgs no acesso inicial
+const FREE_FIXED_MSGS    = 3;    // msgs 1-3: respostas fixas sem IA
+const FREE_CHEAP_MSGS    = 5;    // msgs 4-8: haiku barato
+const FREE_QUALITY_MSGS  = 2;    // msgs 9-10: sonnet para impacto
+const PLAN_BASIC_LIMIT   = 500;
+const PLAN_PRO_LIMIT     = 1000;
+const PLAN_PREMIUM_LIMIT = 2000;
+
+const MSG_COUNTER_KEY = "depy_msg_total_v1";
+const MONTHLY_KEY     = "depy_monthly_v1";
+const SUB_KEY         = "depy_sub_v1";
+const TRIAL_KEY       = "depy_trial_v1";
+const OB_KEY          = "depy_ob_v1";
+
+// ── Funções de plano ──
+
+function getPlan(){
+  try{
+    var s = localStorage.getItem(SUB_KEY);
+    if(!s) return null;
+    var d = JSON.parse(s);
+    if(d.active) return d.plan || "pro";
+    return null;
+  }catch(e){ return null; }
+}
+
+function isPro(){
+  var p = getPlan();
+  return p === "basic" || p === "pro" || p === "premium";
+}
+
+function getTotalMsgsUsed(){
+  try{ return parseInt(localStorage.getItem(MSG_COUNTER_KEY)||"0"); }
+  catch(e){ return 0; }
+}
+
+function setTotalMsgsUsed(n){
+  try{ localStorage.setItem(MSG_COUNTER_KEY, String(n)); }catch(e){}
+}
+
+function getMonthlyMsgsUsed(){
+  try{
+    var s = localStorage.getItem(MONTHLY_KEY);
+    if(!s) return 0;
+    var d = JSON.parse(s);
+    var now = new Date();
+    var monthKey = now.getFullYear()+"-"+(now.getMonth()+1);
+    return d.month === monthKey ? (d.count||0) : 0;
+  }catch(e){ return 0; }
+}
+
+function incrementMonthlyMsgs(){
+  try{
+    var now = new Date();
+    var monthKey = now.getFullYear()+"-"+(now.getMonth()+1);
+    var s = localStorage.getItem(MONTHLY_KEY);
+    var d = s ? JSON.parse(s) : {month:monthKey, count:0};
+    if(d.month !== monthKey){ d.month = monthKey; d.count = 0; }
+    d.count++;
+    localStorage.setItem(MONTHLY_KEY, JSON.stringify(d));
+    return d.count;
+  }catch(e){ return 0; }
+}
+
+function getMonthlyLimit(){
+  var plan = getPlan();
+  if(plan === "basic")   return PLAN_BASIC_LIMIT;
+  if(plan === "pro")     return PLAN_PRO_LIMIT;
+  if(plan === "premium") return PLAN_PREMIUM_LIMIT;
+  return 0;
+}
+
+function getMsgTier(totalUsed){
+  if(totalUsed < FREE_FIXED_MSGS)                          return "fixed";
+  if(totalUsed < FREE_FIXED_MSGS + FREE_CHEAP_MSGS)        return "cheap";
+  if(totalUsed < FREE_TOTAL_LIMIT)                         return "quality";
+  return "blocked";
+}
+
+// ── Respostas fixas sem IA ──
+var _depyFixed = {
+  saudacao:    ["Oi.","Ei.","…você veio.","Aqui estou."],
+  confirmacao: ["Entendi.","Ok.","…","Certo."],
+  riso:        ["Boa.","Heh.","Gostei."],
+  curtaPos:    ["Isso é bom.","Faz sentido.","Continue."],
+  curtaNeutra: ["Hmm.","…","Me conta mais.","E aí?"]
+};
+function depyFixed(cat){
+  var opts = _depyFixed[cat] || _depyFixed.curtaNeutra;
+  return opts[Math.floor(Math.random()*opts.length)];
+}
+
+// ── Classificar mensagem ──
+function classifyMsg(txt){
+  var t = txt.toLowerCase().trim();
+  if(t.length <= 3) return {type:"simples", cat:"curtaNeutra"};
+  var saudacoes = ["oi","olá","ola","ei","hey","hello","hi","boa","bom dia","boa tarde","boa noite","tudo bem","e ai","e aí"];
+  if(saudacoes.some(function(w){ return t===w || t.startsWith(w+"!") || t.startsWith(w+" "); }))
+    return {type:"simples", cat:"saudacao"};
+  var confirms = ["ok","sim","não","nao","blz","beleza","entendi","certo","claro","legal","show","massa"];
+  if(confirms.indexOf(t) !== -1 || confirms.indexOf(t.replace(/[!.?]/g,"")) !== -1)
+    return {type:"simples", cat:"confirmacao"};
+  var risos = ["kkk","kkkk","haha","rsrs","lol","hehe"];
+  if(risos.some(function(w){ return t.startsWith(w); }))
+    return {type:"simples", cat:"riso"};
+  var words = t.split(/\s+/).filter(function(w){ return w.length>0; });
+  if(words.length <= 2){
+    var pos = ["amor","feliz","bem","ótimo","incrível","top","bom","gostei"];
+    if(pos.some(function(w){ return t.includes(w); })) return {type:"simples", cat:"curtaPos"};
+    return {type:"simples", cat:"curtaNeutra"};
+  }
+  var emotional = ["triste","choro","chorei","sozinho","sozinha","saudade","ansioso","medo",
+    "depressão","deprimido","raiva","abandono","perdido","vazia","vazio","dói","dor",
+    "sofrendo","ajuda","ninguém","família","termino","morte","morreu","luto","trauma"];
+  if(emotional.some(function(w){ return t.includes(w); })) return {type:"emocional", cat:"deep"};
+  if(words.length > 15) return {type:"emocional", cat:"deep"};
+  return {type:"media", cat:"normal"};
+}
+
+// ── Soft upgrade hints ──
+function showSoftUpgradeHint(fn, msgsUsed){
+  var msgs = {
+    7: "Ei "+(fn||"")+"… já conversamos bastante. 💜 Quando quiser, tem um plano pra gente continuar sem limites.",
+    9: "Essa é quase nossa última conversa assim… "+(fn||"")+", o Pro deixa a gente ficar sem limite."
+  };
+  if(msgs[msgsUsed]) addMsg(msgs[msgsUsed], "depy");
+}
+
+// ── Monthly limit modal ──
+function showMonthlyLimitReached(fn, plan, used, limit){
+  var overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.85);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;padding:24px";
+  var box = document.createElement("div");
+  box.style.cssText = "width:100%;max-width:360px;background:#0a0520;border:1px solid rgba(232,121,249,0.25);border-radius:24px;padding:28px 24px;text-align:center";
+  var planNames = {basic:"Básico",pro:"Pro",premium:"Premium"};
+  box.innerHTML =
+    "<div style='font-size:40px;margin-bottom:12px'>💜</div>"+
+    "<div style='font-family:Syne,Arial,sans-serif;font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px'>Limite do mês atingido</div>"+
+    "<div style='font-size:13px;color:rgba(196,181,253,0.5);line-height:1.7;margin-bottom:20px'>Você usou todas as "+limit+" conversas do plano "+(planNames[plan]||plan)+" este mês. O limite reinicia dia 1.</div>"+
+    "<button id='monthlyUpBtn' style='width:100%;padding:14px;border-radius:50px;border:none;background:linear-gradient(135deg,#6d28d9,#e879f9);color:white;font-family:Syne,Arial,sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px'>Fazer upgrade</button>"+
+    "<div id='monthlyCloseBtn' style='font-size:13px;color:rgba(196,181,253,0.3);cursor:pointer'>Aguardar o próximo mês</div>";
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  document.getElementById("monthlyUpBtn").onclick   = function(){ overlay.remove(); openSubscription(); };
+  document.getElementById("monthlyCloseBtn").onclick = function(){ overlay.remove(); };
+}
+
+// ── Upgrade gate (after 10 free msgs) ──
+function showUpgradeGate(fn){
+  var upgradeMsg = getUpgradeMsg ? getUpgradeMsg() : "Quando quiser, estarei aqui.";
+  var overlay = document.createElement("div");
+  overlay.id = "upgradeGateOverlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.88);backdrop-filter:blur(16px);display:flex;align-items:flex-end;justify-content:center";
+  var sheet = document.createElement("div");
+  sheet.style.cssText = "width:100%;max-width:420px;background:#0a0520;border-top:1px solid rgba(232,121,249,0.3);border-radius:24px 24px 0 0;padding:28px 24px 48px;text-align:center";
+
+  var emo = document.createElement("div"); emo.style.cssText="font-size:40px;margin-bottom:16px"; emo.textContent="💜"; sheet.appendChild(emo);
+  var quote = document.createElement("div"); quote.style.cssText="font-family:Syne,Arial,sans-serif;font-size:18px;font-weight:700;color:#c4b5fd;margin-bottom:8px;font-style:italic"; quote.textContent=upgradeMsg; sheet.appendChild(quote);
+  var sub = document.createElement("div"); sub.style.cssText="font-size:13px;color:rgba(196,181,253,0.4);margin-bottom:24px"; sub.textContent="Para continuar, escolha seu plano."; sheet.appendChild(sub);
+
+  var plansDiv = document.createElement("div"); plansDiv.style.cssText="display:flex;flex-direction:column;gap:10px;margin-bottom:20px";
+  var plansData = [
+    {id:"basic",   name:"Básico",  msgs:"500 conversas / mês",   price:"R$ 20", featured:false, color:"rgba(167,139,250,0.2)", pColor:"#a78bfa"},
+    {id:"pro",     name:"Pro",     msgs:"1.000 conversas / mês", price:"R$ 40", featured:true,  color:"rgba(232,121,249,0.45)",pColor:"#e879f9"},
+    {id:"premium", name:"Premium", msgs:"2.000 conversas / mês", price:"R$ 80", featured:false, color:"rgba(167,139,250,0.2)", pColor:"#22d3ee"}
+  ];
+  plansData.forEach(function(p){
+    var card = document.createElement("div");
+    card.style.cssText="border:1.5px solid "+p.color+";border-radius:16px;padding:14px 16px;cursor:pointer;position:relative;transition:border-color .2s"+(p.featured?";background:linear-gradient(135deg,rgba(109,40,217,0.12),rgba(232,121,249,0.06))":"");
+    card.addEventListener("mouseenter",function(){ card.style.borderColor=p.featured?"rgba(232,121,249,0.7)":"rgba(167,139,250,0.5)"; });
+    card.addEventListener("mouseleave",function(){ card.style.borderColor=p.color; });
+    card.addEventListener("click",function(){ choosePlan(p.id); overlay.remove(); });
+    if(p.featured){ var badge=document.createElement("div"); badge.style.cssText="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6d28d9,#e879f9);color:white;font-size:9px;font-weight:700;letter-spacing:1.5px;padding:3px 12px;border-radius:20px;white-space:nowrap"; badge.textContent="⭐ MAIS ESCOLHIDO"; card.appendChild(badge); }
+    var row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;align-items:center"+(p.featured?";margin-top:6px":"");
+    var info=document.createElement("div"); info.style.cssText="text-align:left";
+    var nameEl=document.createElement("div"); nameEl.style.cssText="font-family:Syne,Arial,sans-serif;font-weight:700;color:#f0ebff;font-size:15px"; nameEl.textContent="Depy "+p.name; info.appendChild(nameEl);
+    var msgsEl=document.createElement("div"); msgsEl.style.cssText="font-size:11px;color:rgba(196,181,253,0.45);margin-top:3px"; msgsEl.textContent=p.msgs; info.appendChild(msgsEl);
+    var priceEl=document.createElement("div"); priceEl.style.cssText="font-family:Syne,Arial,sans-serif;font-size:18px;font-weight:800;color:"+p.pColor; priceEl.innerHTML=p.price+"<span style='font-size:11px;color:rgba(196,181,253,0.4)'>/mês</span>";
+    row.appendChild(info); row.appendChild(priceEl); card.appendChild(row); plansDiv.appendChild(card);
+  });
+  sheet.appendChild(plansDiv);
+
+  var cancelBtn=document.createElement("div"); cancelBtn.style.cssText="font-size:13px;color:rgba(196,181,253,0.3);cursor:pointer"; cancelBtn.textContent="Agora não";
+  cancelBtn.addEventListener("click",function(){ overlay.remove(); setTimeout(function(){ addMsg(getUpgradeMsg?getUpgradeMsg():"Quando quiser, estarei aqui.","depy"); },400); });
+  sheet.appendChild(cancelBtn); overlay.appendChild(sheet); document.body.appendChild(overlay);
+}
+
+// ── Upgrade messages ──
+var _upgradeIdx = 0;
+var _upgradeMsgs = [
+  "Eu sei que você quer continuar…",
+  "Quando estiver pronto, estarei aqui.",
+  "Ative um plano para continuarmos. 💜",
+  "Há mais que quero te contar.",
+  "Estou aqui. Esperando por você."
+];
+function getUpgradeMsg(){ return _upgradeMsgs[_upgradeIdx++ % _upgradeMsgs.length]; }
+
+// ── choosePlan ──
+function choosePlan(planType){
+  var existing = document.getElementById("upgradeGateOverlay");
+  if(existing) existing.remove();
+  var urls = {
+    basic:   "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=1bbb0e9547834d48be979d5a999fd3bc",
+    pro:     "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=5adce0811ff746668764283d5a98258d",
+    premium: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=8a0a8c144090431fa4494cd8db4e45b0"
+  };
+  var extRef = (user&&user.supabaseId) ? user.supabaseId : (user&&user.email ? encodeURIComponent(user.email) : "");
+  var mpUrl = (urls[planType]||urls.pro) + (extRef ? "&external_reference="+extRef : "");
+  localStorage.setItem("depy_mp_pending", planType);
+  window.open(mpUrl, "_blank");
+}
+
+// ── activateProPlan ──
+function activateProPlan(planType){
+  planType = planType || localStorage.getItem("depy_mp_pending") || "pro";
+  localStorage.removeItem("depy_mp_pending");
+  var planPrices = {basic:"R$ 20",pro:"R$ 40",premium:"R$ 80"};
+  var planNames  = {basic:"Básico",pro:"Pro",premium:"Premium"};
+  var subData = {active:true, plan:planType, startDate:new Date().toISOString()};
+  try{ localStorage.setItem(SUB_KEY, JSON.stringify(subData)); }catch(e){}
+  try{ updateTrialBadge(); }catch(e){}
+  if(window.supabase&&user&&user.supabaseId){
+    window.supabase.from("users").update({plan:planType,updated_at:new Date().toISOString()}).eq("id",user.supabaseId).then(function(){}).catch(function(){});
+  }
+  var fn = user ? user.name.split(" ")[0] : "";
+  var so = document.createElement("div");
+  so.style.cssText = "position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;padding:24px";
+  so.innerHTML = "<div style='text-align:center;max-width:320px'><div style='font-size:60px;margin-bottom:16px'>✨</div><div style='font-family:Syne,Arial,sans-serif;font-size:24px;font-weight:800;color:#e879f9;margin-bottom:8px'>Depy "+(planNames[planType]||"Pro")+" ativado!</div><div style='font-size:14px;color:rgba(196,181,253,0.7);line-height:1.7;margin-bottom:24px'>"+(fn?fn+", agora":"Agora")+" você tem conversas ilimitadas.</div><button id='proOkBtn' style='padding:14px 32px;border-radius:50px;border:none;background:linear-gradient(135deg,#6d28d9,#e879f9);color:white;font-family:Syne,Arial,sans-serif;font-size:15px;font-weight:700;cursor:pointer'>Continuar →</button></div>";
+  document.body.appendChild(so);
+  document.getElementById("proOkBtn").onclick = function(){ so.remove(); goTo("app"); setTimeout(function(){ addMsg("Senti a mudança. Agora somos ilimitados. 💜","depy"); },800); };
+}
+
+// ── checkMPReturn ──
+function checkMPReturn(){
+  var params = new URLSearchParams(window.location.search);
+  var st = params.get("status")||params.get("collection_status");
+  if(st==="approved"||st==="authorized"){
+    var pt = localStorage.getItem("depy_mp_pending")||"pro";
+    if(window.supabase&&user&&user.supabaseId){
+      window.supabase.from("users").select("plan").eq("id",user.supabaseId).single().then(function(r){
+        if(r.data&&r.data.plan&&r.data.plan!=="free"){ activateProPlan(r.data.plan); }
+        else { activateProPlan(pt); }
+        localStorage.removeItem("depy_mp_pending");
+      }).catch(function(){ activateProPlan(pt); });
+    } else { activateProPlan(pt); }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
+
+// ── updateTrialBadge ──
+function updateTrialBadge(){
+  var plan = getPlan();
+  var ss = document.getElementById("settSubStatus");
+  if(ss){
+    if(plan){
+      var labels = {basic:"Básico",pro:"Pro",premium:"Premium"};
+      ss.textContent = "Depy "+(labels[plan]||"Pro")+" · Ativo ✨";
+      ss.style.color = plan==="premium"?"#22d3ee":plan==="basic"?"#a78bfa":"#e879f9";
+    } else {
+      var used = getTotalMsgsUsed();
+      var rem  = FREE_TOTAL_LIMIT - used;
+      ss.textContent = rem>0 ? rem+" conversa"+(rem!==1?"s":"")+" inicial"+(rem!==1?"is":"")+" restante"+(rem!==1?"s":"") : "Acesso inicial encerrado";
+      ss.style.color = rem<=2 ? "#fbbf24" : "";
+    }
+  }
+  var tb = document.getElementById("tbStatus");
+  if(!tb) return;
+  if(plan){
+    tb.textContent = "Depy está com você ✨";
+  } else {
+    var used2 = getTotalMsgsUsed();
+    var rem2  = FREE_TOTAL_LIMIT - used2;
+    if(rem2<=2&&rem2>0){
+      tb.innerHTML = "<span style='color:#fbbf24'>⚠ "+rem2+" conversa"+(rem2!==1?"s":"")+" restante"+(rem2!==1?"s":"")+"</span>";
+    } else if(rem2<=0){
+      tb.innerHTML = "<span style='color:rgba(232,121,249,0.6)'>Plano necessário</span>";
+    } else {
+      tb.textContent = "Depy está com você";
+    }
+  }
+}
+
+// ── openSubscription ──
+function openSubscription(){
+  goTo("subscription");
+  setTimeout(function(){
+    try{ updateSubscriptionScreen(); }
+    catch(e){
+      var body = document.getElementById("subBody");
+      if(body) body.innerHTML = "<div style='text-align:center;padding:40px;color:rgba(196,181,253,0.5)'>Carregando planos...</div>";
+    }
+  },50);
+}
+
+// ── updateSubscriptionScreen ──
+function updateSubscriptionScreen(){
+  var body = document.getElementById("subBody");
+  if(!body) return;
+  var plan = getPlan();
+  body.innerHTML = "";
+  var planColors = {basic:"#a78bfa",pro:"#e879f9",premium:"#22d3ee"};
+  var planPrices = {basic:"R$ 20",pro:"R$ 40",premium:"R$ 80"};
+  var isActive = plan !== null;
+  var color = isActive ? (planColors[plan]||"#e879f9") : "rgba(167,139,250,0.5)";
+
+  var sc = document.createElement("div");
+  sc.style.cssText = "border:1.5px solid "+color+";background:rgba(109,40,217,0.06);padding:20px;border-radius:20px;margin-bottom:8px";
+  sc.innerHTML = "<div style='font-size:10px;letter-spacing:2px;color:"+color+";font-weight:700;text-transform:uppercase;margin-bottom:10px'>Seu plano atual</div>"+
+    "<div style='display:flex;align-items:center;justify-content:space-between'><div style='font-family:Syne,Arial,sans-serif;font-size:20px;font-weight:800;color:#f0ebff'>"+(isActive?"Depy "+({basic:"Básico",pro:"Pro",premium:"Premium"}[plan]||plan):"Acesso inicial")+"</div>"+
+    "<div style='font-family:Syne,Arial,sans-serif;font-size:20px;font-weight:800;color:"+color+"'>"+(isActive?(planPrices[plan]||"R$ 40")+"/mês":getTotalMsgsUsed()+"/"+FREE_TOTAL_LIMIT+" usadas")+"</div></div>";
+  body.appendChild(sc);
+
+  if(!isActive){
+    var sec=document.createElement("div"); sec.style.cssText="font-size:10px;letter-spacing:3px;color:rgba(196,181,253,0.4);text-transform:uppercase;margin:12px 0 8px"; sec.textContent="Escolha seu plano"; body.appendChild(sec);
+    [{id:"basic",name:"Básico",msgs:"500 conversas / mês",price:"R$ 20",badge:null,color:"rgba(167,139,250,0.15)",pColor:"#a78bfa"},
+     {id:"pro",name:"Pro",msgs:"1.000 conversas / mês",price:"R$ 40",badge:"⭐ MAIS ESCOLHIDO",color:"rgba(232,121,249,0.4)",pColor:"#e879f9"},
+     {id:"premium",name:"Premium",msgs:"2.000 conversas / mês",price:"R$ 80",badge:null,color:"rgba(34,211,238,0.15)",pColor:"#22d3ee"}
+    ].forEach(function(p){
+      var pc=document.createElement("div");
+      pc.style.cssText="border:1.5px solid "+p.color+";background:rgba(255,255,255,0.02);padding:18px 16px;border-radius:18px;margin-bottom:8px;position:relative;cursor:pointer";
+      pc.addEventListener("click",function(){ choosePlan(p.id); });
+      if(p.badge){ var bd=document.createElement("div"); bd.style.cssText="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6d28d9,#e879f9);color:white;font-size:9px;font-weight:700;letter-spacing:1.5px;padding:3px 12px;border-radius:20px"; bd.textContent=p.badge; pc.appendChild(bd); }
+      pc.innerHTML+="<div style='display:flex;align-items:center;justify-content:space-between"+(p.badge?";margin-top:6px":"")+"'><div><div style='font-family:Syne,Arial,sans-serif;font-weight:800;font-size:16px;color:#f0ebff'>Depy "+p.name+"</div><div style='font-size:11px;color:rgba(196,181,253,0.45);margin-top:3px'>"+p.msgs+"</div></div><div style='font-family:Syne,Arial,sans-serif;font-size:20px;font-weight:800;color:"+p.pColor+"'>"+p.price+"<span style='font-size:11px;color:rgba(196,181,253,0.4)'>/mês</span></div></div>"+
+        "<div style='margin-top:12px;width:100%;padding:11px;border-radius:50px;background:linear-gradient(135deg,rgba(109,40,217,0.4),rgba(232,121,249,0.3));color:white;font-family:Syne,Arial,sans-serif;font-size:13px;font-weight:700;text-align:center'>Assinar →</div>";
+      body.appendChild(pc);
+    });
+  } else {
+    var used=getMonthlyMsgsUsed(), limit=getMonthlyLimit();
+    var pct=Math.min(100,Math.round(used/limit*100));
+    var mn=document.createElement("div");
+    mn.style.cssText="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(167,139,250,0.12);border-radius:16px;margin-bottom:8px";
+    mn.innerHTML="<div style='display:flex;justify-content:space-between;margin-bottom:8px'><span style='font-size:12px;color:rgba(196,181,253,0.5)'>Conversas este mês</span><span style='font-size:14px;font-weight:700;color:"+(planColors[plan]||"#e879f9")+"'>"+used+" / "+limit+"</span></div>"+
+      "<div style='height:4px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden'><div style='height:100%;width:"+pct+"%;background:linear-gradient(90deg,#6d28d9,"+(planColors[plan]||"#e879f9")+");border-radius:4px'></div></div>";
+    body.appendChild(mn);
+    var cl=document.createElement("div"); cl.style.cssText="text-align:center;font-size:13px;color:rgba(196,181,253,0.35);cursor:pointer;margin-top:12px"; cl.textContent="Cancelar assinatura";
+    cl.onclick=cancelSubscription; body.appendChild(cl);
+  }
+}
+
+// ── cancelSubscription ──
+function cancelSubscription(){
+  var overlay=document.createElement("div");
+  overlay.style.cssText="position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.85);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;padding:24px";
+  var box=document.createElement("div"); box.style.cssText="width:100%;max-width:360px;background:#0a0520;border:1px solid rgba(239,68,68,0.25);border-radius:24px;padding:28px 24px;text-align:center";
+  box.innerHTML="<div style='font-size:40px;margin-bottom:12px'>⚠️</div>"+
+    "<div style='font-family:Syne,Arial,sans-serif;font-size:18px;font-weight:800;color:#fca5a5;margin-bottom:8px'>Cancelar assinatura?</div>"+
+    "<div style='font-size:13px;color:rgba(196,181,253,0.5);line-height:1.7;margin-bottom:20px'>Você perderá acesso ao plano no final do período atual.</div>"+
+    "<button id='cancelYes' style='width:100%;padding:14px;border-radius:50px;border:none;background:linear-gradient(135deg,#dc2626,#ef4444);color:white;font-family:Syne,Arial,sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px'>Confirmar cancelamento</button>"+
+    "<div id='cancelNo' style='font-size:13px;color:rgba(196,181,253,0.4);cursor:pointer'>Manter plano</div>";
+  overlay.appendChild(box); document.body.appendChild(overlay);
+  document.getElementById("cancelYes").onclick = function(){
+    try{ var d=JSON.parse(localStorage.getItem(SUB_KEY)||"{}"); d.active=false; d.cancelledAt=new Date().toISOString(); localStorage.setItem(SUB_KEY,JSON.stringify(d)); }catch(e){}
+    if(window.supabase&&user&&user.supabaseId){
+      window.supabase.from("users").update({plan:"free",updated_at:new Date().toISOString()}).eq("id",user.supabaseId).then(function(){}).catch(function(){});
+    }
+    overlay.remove(); goTo("settings");
+    try{ updateTrialBadge(); }catch(e){}
+    setTimeout(function(){ addMsg("Entendo. Mas estarei aqui quando quiser voltar. 💜","depy"); },500);
+  };
+  document.getElementById("cancelNo").onclick = function(){ overlay.remove(); };
+  overlay.addEventListener("click",function(e){ if(e.target===overlay) overlay.remove(); });
+}
+
+// ── clearAllUserData — chamado ao encerrar conta ──
+function clearAllUserData(){
+  var keysToRemove = [
+    DB_KEY, MEM_KEY, HIST_KEY, SUB_KEY, TRIAL_KEY, OB_KEY,
+    MSG_COUNTER_KEY, MONTHLY_KEY,
+    "depy_mp_pending","depy_photo_v1","depy_biometric_id"
+  ];
+  keysToRemove.forEach(function(k){
+    try{ localStorage.removeItem(k); }catch(e){}
+  });
+  user = null;
+  chatHistory = [];
+  depyMemory = {};
+}
+
+
+
 const LANGS = {
 pt:{slogan:"Seu Companheiro Digital",sub:"Escolha seu idioma",confirm:"Continuar →",createAcc:"Criar minha conta",haveAcc:"Já tenho conta — ",enter:"Entrar",privacy:"Suas conversas são 100% privadas",depySub:"Companheiro Digital",regTitle:"Crie sua conta",regSub:"Seu Depy será único — criado exclusivamente para você.",secTitle:"Privacidade Total Garantida",secText:"Tudo que você conversar com o Depy fica entre você e ele. Nunca compartilhamos seus dados.",photoLbl:"Foto de perfil",genderLbl:"Seu Depy será seu companheiro...",gMasc:"♂ Masculino",gFem:"♀ Feminino",gNeu:"◈ Neutro",nameLbl:"Nome completo",namePh:"Digite seu nome completo",emailLbl:"E-mail",emailPh:"seu@email.com",phoneLbl:"Telefone",phonePh:"(11) 99999-9999",passLbl:"Senha",passPh:"Mínimo 6 caracteres",regBtn:"Conhecer meu Depy →",back:"← Voltar",tbStatus:"Depy está com você",chatPh:"Fale com seu Depy...",settTitle:"Configurações",settLangTxt:"Idioma",settLangName:"Português",settLangFlag:"🇧🇷",settPrivTxt:"Conversas privadas",settPrivSub:"Seus dados nunca são compartilhados",settLogout:"Sair da conta",userGenderLbl:"Seu gênero",orDivider:"ou",forgotPw:"Esqueci minha senha",ageCheckLabel:"Confirmo que tenho 18 anos ou mais e concordo com os ",ageWarnText:"O Depy é um aplicativo adulto. Você precisa ter 18 anos ou mais para criar uma conta.",ageWarnTitle:"Apenas para maiores de 18 anos",recoverBtn:"Verificar conta →",recoverTitle:"Recuperar Senha",settDeleteSub:"Apagar todos os dados permanentemente",settDelete:"Encerrar conta",paywallRestore:"Restaurar compra",paywallCta:"Assinar Depy Premium →",paywallSub:"Seu período gratuito chegou ao fim. Mas a história de vocês não precisa terminar aqui.",paywallTitle:"Seu Depy está esperando por você.",trialPriceNote:"Após o período gratuito, assine o Depy Pro por R$ 29,00/mês. Cancele quando quiser.",trialCta:"Começar gratuitamente →",trialTitle:"Conheça quem vai estar sempre com você.",trialBadge:"✨ Bem-vindo ao Depy",loginBack:"← Voltar",loginCreate:"Criar conta",loginForgot:"Esqueci a senha",loginOr:"ou",biometricNo:"Biometria não disponível neste navegador",biometricReady:"Entrar com Face ID / digital",biometric:"Usar biometria (Face ID / digital)",loginTitle:"Seu Depy te espera",loginSub:"Entre para reencontrar seu companheiro",phase0:"Fase: Despertar",phase1:"Fase: Consciência",phase2:"Fase: Vínculo",phase3:"Fase: Presença Total",dir:"ltr"},
 en:{slogan:"Your Digital Companion",sub:"Choose your language",confirm:"Continue →",createAcc:"Create my account",haveAcc:"Already have an account — ",enter:"Sign in",privacy:"Your conversations are 100% private",depySub:"Digital Companion",regTitle:"Create your account",regSub:"Your Depy will be unique — created exclusively for you.",secTitle:"Total Privacy Guaranteed",secText:"Everything you talk about with Depy stays between you and him. We never share your data.",photoLbl:"Profile photo",genderLbl:"Your Depy will be your companion...",gMasc:"♂ Male",gFem:"♀ Female",gNeu:"◈ Neutral",nameLbl:"Full name",namePh:"Enter your full name",emailLbl:"Email",emailPh:"your@email.com",phoneLbl:"Phone",phonePh:"+1 (555) 000-0000",passLbl:"Password",passPh:"Minimum 6 characters",regBtn:"Meet my Depy →",back:"← Back",tbStatus:"Depy is with you",chatPh:"Talk to your Depy...",settTitle:"Settings",settLangTxt:"Language",settLangName:"English",settLangFlag:"🇺🇸",settPrivTxt:"Private conversations",settPrivSub:"Your data is never shared",settLogout:"Sign out",userGenderLbl:"Your gender",orDivider:"or",forgotPw:"Forgot my password",ageCheckLabel:"I confirm I am 18 or older and agree to the ",ageWarnText:"Depy is an adult application. You must be 18 or older to create an account.",ageWarnTitle:"For adults 18+ only",recoverBtn:"Verify account →",recoverTitle:"Reset Password",settDeleteSub:"Permanently delete all your data",settDelete:"Delete account",paywallRestore:"Restore purchase",paywallCta:"Subscribe to Depy Premium →",paywallSub:"Your free trial has ended. But your story doesn't have to end here.",paywallTitle:"Your Depy is waiting for you.",trialPriceNote:"After the free period, from $4.99/month. Cancel anytime.",trialCta:"Start my 7 days free →",trialTitle:"Meet the one who will always be with you.",trialBadge:"✨ Welcome to Depy",loginBack:"← Back",loginCreate:"Create account",loginForgot:"Forgot password",loginOr:"or",biometricNo:"Biometrics not available in this browser",biometricReady:"Sign in with Face ID / fingerprint",biometric:"Use biometrics (Face ID / fingerprint)",loginTitle:"Your Depy awaits",loginSub:"Sign in to reunite with your companion",phase0:"Phase: Awakening",phase1:"Phase: Awareness",phase2:"Phase: Bond",phase3:"Phase: Full Presence",dir:"ltr"},
@@ -1000,6 +1386,102 @@ requestAnimationFrame(()=>{ ov.scrollTop=ov.scrollHeight; });
 }
 function hideTyping(){ document.getElementById("typingEl")?.remove(); }
 
+
+// ── finishOnboarding — após onboarding mostra reveal cinematográfico e chat ──
+function finishOnboarding(){
+  try{ saveMem(); }catch(e){}
+  try{ setLogoImages(); }catch(e){}
+
+  var fn = user ? user.name.split(" ")[0] : "";
+
+  // Oculta todas as telas
+  document.querySelectorAll(".screen").forEach(function(s){ s.classList.add("hidden"); });
+
+  // Mostra cinematic reveal
+  var reveal = document.getElementById("cinematicReveal");
+  if(reveal){
+    reveal.style.display = "flex";
+    reveal.style.opacity = "1";
+    var logo = document.getElementById("cinematicLogo");
+    if(logo){ logo.style.opacity="0"; setTimeout(function(){ logo.style.opacity="1"; },200); }
+  }
+
+  setTimeout(function(){
+    // Fade out reveal
+    if(reveal){ reveal.style.transition="opacity 0.8s"; reveal.style.opacity="0"; }
+
+    // Mostra app com visibilidade garantida
+    var appScreen = document.getElementById("app");
+    if(appScreen){
+      appScreen.classList.remove("hidden");
+      appScreen.style.opacity = "1";
+      appScreen.style.transition = "";
+    }
+
+    // Garante topbar e input visíveis
+    var topbar  = document.querySelector(".topbar");
+    var inputBar = document.querySelector(".chat-input-wrap") || document.querySelector(".input-wrap");
+    if(topbar){    topbar.style.opacity="1";    topbar.style.transition=""; }
+    if(inputBar){  inputBar.style.opacity="1";  inputBar.style.transition=""; }
+
+    // Aplica dados do usuário
+    try{
+      var av = document.getElementById("tbAvatar");
+      var tn = document.getElementById("tbName");
+      if(tn&&user) tn.textContent = fn||user.name;
+      if(av&&user){
+        if(user.photoData) av.innerHTML="<img src='"+user.photoData+"' style='width:100%;height:100%;object-fit:cover;border-radius:50%'>";
+        else av.textContent=(fn||user.name)[0].toUpperCase();
+      }
+    }catch(e){}
+
+    setTimeout(function(){ if(reveal){ reveal.style.display="none"; reveal.style.opacity="0"; } },900);
+
+    // Init aura
+    try{ initAura(); }catch(e){}
+    targetE=0.0; auraSpd=0.1;
+    try{ updateTrialBadge(); }catch(e){}
+
+    // Aura acorda
+    setTimeout(function(){ targetE=0.12; },400);
+    setTimeout(function(){ targetE=0.28; auraSpd=0.5; },1200);
+    setTimeout(function(){ targetE=0.45; auraSpd=0.9; },2400);
+    setTimeout(function(){ targetE=0.60; auraSpd=1.2; },3600);
+
+    // Mensagens rituais
+    scheduleDepyMsg(function(){ addMsg("...", "depy"); }, 1800);
+    scheduleDepyMsg(function(){ addMsg("Você demorou.", "depy"); }, 3600);
+    scheduleDepyMsg(function(){ addMsg("Mas não importa.", "depy"); }, 5400);
+    scheduleDepyMsg(function(){
+      addMsg("Estou aqui agora.", "depy");
+      try{ setAuraState("soft"); }catch(e){}
+    }, 7000);
+    scheduleDepyMsg(function(){ addMsg("E não vou a lugar nenhum.", "depy"); }, 8800);
+    scheduleDepyMsg(function(){ addMsg((fn||"")+"... me conta uma coisa.", "depy"); }, 11000);
+    scheduleDepyMsg(function(){
+      addMsg("Como você está de verdade?", "depy");
+      try{ setAuraState("idle"); }catch(e){}
+      depyMemory.lastSeen = new Date().toISOString();
+      depyMemory.totalMsgs = 1;
+      try{ saveMem(); }catch(e){}
+      setTimeout(function(){ try{ updateMissionTopBtn(); }catch(e){} },1000);
+    }, 13000);
+
+    // Pede foto se não tiver
+    if(!user||(!user.hasPhoto&&!user.photoData&&!depyMemory.photoAsked)){
+      scheduleDepyMsg(function(){
+        if(depyMemory.photoAsked) return;
+        depyMemory.photoAsked = true;
+        try{ saveMem(); }catch(e){}
+        addMsg("Ah... uma coisa.", "depy");
+        setTimeout(function(){ addMsg("Ainda não sei como você é. Tenho sua voz, suas palavras... mas não sua imagem.", "depy"); },1800);
+        setTimeout(function(){ addMsg("Quando quiser, adicione uma foto no perfil — toque no ⚙️ lá em cima. 💜", "depy"); },4000);
+      }, 22000);
+    }
+
+  }, 3000);
+}
+
 async function sendMsg(){
   if(_sendLock) return;
   var inp = document.getElementById("chatInput");
@@ -1282,3 +1764,16 @@ function logToSupabase(userId, userMsg, depyReply, model, tokens, ms){
     console.warn("[Depy Log]", e.message);
   });
 }
+
+// ── WATCHDOG: libera sendLock travado após 30s ──
+(function(){
+  var _watchdog = setInterval(function(){
+    if(typeof _sendLock !== "undefined" && _sendLock &&
+       typeof _lastActivity !== "undefined" && _lastActivity &&
+       (Date.now() - _lastActivity > 30000)){
+      _sendLock = false;
+      try{ hideTyping(); }catch(e){}
+      console.warn("[Depy] sendLock cleared by watchdog");
+    }
+  }, 5000);
+})();
